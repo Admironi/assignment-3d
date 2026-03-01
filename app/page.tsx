@@ -1,64 +1,201 @@
-import Image from "next/image";
+﻿'use client';
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import SceneCanvas from '@/components/scene/SceneCanvas';
+import RotationPanel from '@/components/ui/RotationPanel';
+import ViewToggle from '@/components/ui/ViewToggle';
+import {
+  cloneModels,
+  DEFAULT_MODELS,
+  MODEL_IDS,
+  type ModelId,
+  type ModelTransform,
+  type ModelsMap,
+  type Vec3,
+  type ViewMode,
+} from '@/models/model';
+import { loadModelTransforms, saveModelTransform } from '@/models/model-store';
 
 export default function Home() {
+  const [viewMode, setViewMode] = useState<ViewMode>('3d');
+  const [models, setModels] = useState<ModelsMap>(() =>
+    cloneModels(DEFAULT_MODELS),
+  );
+  const [selectedId, setSelectedId] = useState<ModelId>('model-a');
+  const [loading, setLoading] = useState(true);
+  const [dragging, setDragging] = useState(false);
+  const [error, setError] = useState<string>('');
+
+  const saveTimers = useRef<
+    Partial<Record<ModelId, ReturnType<typeof setTimeout>>>
+  >({});
+
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      try {
+        const loaded = await loadModelTransforms();
+        if (active) {
+          setModels(loaded);
+        }
+      } catch {
+        if (active) {
+          setError('Failed to laod Firestore data.');
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const timers = saveTimers.current;
+
+    return () => {
+      MODEL_IDS.forEach((id) => {
+        const timer = timers[id];
+        if (timer) {
+          clearTimeout(timer);
+        }
+      });
+    };
+  }, []);
+
+  const queueSave = useCallback((model: ModelTransform, immediate = false) => {
+    const timer = saveTimers.current[model.id];
+    if (timer) {
+      clearTimeout(timer);
+    }
+
+    if (immediate) {
+      void saveModelTransform(model).catch(() => {
+        setError('Failed to save to Firestore.');
+      });
+      return;
+    }
+
+    saveTimers.current[model.id] = setTimeout(() => {
+      void saveModelTransform(model).catch(() => {
+        setError('Failed to save to Firestore.');
+      });
+    }, 120);
+  }, []);
+
+  const canPlace = useCallback(
+    (id: ModelId, nextPosition: Vec3) => {
+      const moving = models[id];
+
+      for (const candidateId of MODEL_IDS) {
+        if (candidateId === id) {
+          continue;
+        }
+
+        const fixed = models[candidateId];
+        const dx = nextPosition.x - fixed.position.x;
+        const dz = nextPosition.z - fixed.position.z;
+        const minDistance = moving.radius + fixed.radius;
+
+        if (dx * dx + dz * dz < minDistance * minDistance) {
+          return false;
+        }
+      }
+
+      return true;
+    },
+    [models],
+  );
+
+  const updateModel = useCallback(
+    (
+      id: ModelId,
+      patch: Partial<Pick<ModelTransform, 'position' | 'rotationY'>>,
+      immediate = false,
+    ) => {
+      let nextModel: ModelTransform | null = null;
+
+      setModels((current) => {
+        const base = current[id];
+        nextModel = {
+          ...base,
+          ...patch,
+          position: patch.position
+            ? { ...patch.position }
+            : { ...base.position },
+        };
+
+        return {
+          ...current,
+          [id]: nextModel,
+        };
+      });
+
+      if (nextModel) {
+        queueSave(nextModel, immediate);
+      }
+    },
+    [queueSave],
+  );
+
+  const handleDrag = useCallback(
+    (id: ModelId, nextPosition: Vec3) => {
+      if (!canPlace(id, nextPosition)) {
+        return;
+      }
+
+      updateModel(id, { position: nextPosition });
+    },
+    [canPlace, updateModel],
+  );
+
+  const handleDragEnd = useCallback(
+    (id: ModelId) => {
+      queueSave(models[id], true);
+    },
+    [models, queueSave],
+  );
+
+  const handleRotate = useCallback(
+    (rotationY: number) => {
+      updateModel(selectedId, { rotationY });
+    },
+    [selectedId, updateModel],
+  );
+
+  const selectedModel = useMemo(() => models[selectedId], [models, selectedId]);
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="min-h-screen bg-neutral-100 text-neutral-900">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-300 bg-neutral-50 px-4 py-3">
+        <h1 className="text-base font-semibold">3D Assignment</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <ViewToggle value={viewMode} onChange={setViewMode} />
+          <RotationPanel model={selectedModel} onRotate={handleRotate} />
+        </div>
+      </header>
+
+      {error ? (
+        <div className="px-4 py-2 text-sm text-red-700">{error}</div>
+      ) : null}
+      {loading ? <div className="px-4 py-2 text-sm">Loading...</div> : null}
+
+      <main className="h-[calc(100vh-73px)]">
+        <SceneCanvas
+          viewMode={viewMode}
+          models={models}
+          selectedId={selectedId}
+          dragging={dragging}
+          onSelect={setSelectedId}
+          onDrag={handleDrag}
+          onDragStateChange={setDragging}
+          onDragEnd={handleDragEnd}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
       </main>
     </div>
   );
