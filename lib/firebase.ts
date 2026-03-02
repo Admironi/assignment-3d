@@ -1,14 +1,13 @@
 ﻿import { getApp, getApps, initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 
-//process.env u produkciji
 const firebaseConfig = {
-  apiKey: 'AIzaSyB_JjhWjrIqUcDqwPom--V06y0CCw6r-2s',
-  authDomain: 'assigmnet-3d.firebaseapp.com',
-  projectId: 'assigmnet-3d',
-  storageBucket: 'assigmnet-3d.firebasestorage.app',
-  messagingSenderId: '183497904475',
-  appId: '1:183497904475:web:c53b903f7d7c6a41c0ca7e',
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN!,
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!,
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET!,
+  messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID!,
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID!,
 };
 
 const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
