@@ -12,5 +12,7 @@ Mini web aplikacija za rad sa dva GLB modela uz Next.js, Three.js i Firestore.
 
 ## Instalacija
 - npm install
+- Prebaciti .env.local u root foldera assignment-3d
 - npm run dev
 - Otvoriti na http://localhost:3000
+
